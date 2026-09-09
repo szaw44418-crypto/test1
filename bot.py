@@ -1,22 +1,13 @@
 import os
+import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
+import ccxt
+import pandas as pd
+import pandas_ta as ta
+import requests
 
-class SimpleHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"Bot is running!")
-
-def run_server():
-    port = int(os.environ.get("PORT", 10000))
-    server = HTTPServer(("0.0.0.0", port), SimpleHandler)
-    server.serve_forever()
-
-# Server ကို Background မှာ အလုပ်လုပ်ခိုင်းရန်
-server_thread = threading.Thread(target=run_server, daemon=True)
-server_thread.start()
-
+# Render အတွက် Port ဖွင့်ပေးသော HTTP Server
 class SimpleHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -27,14 +18,16 @@ class SimpleHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.end_headers()
 
+def run_server():
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), SimpleHandler)
+    server.serve_forever()
 
-import os
-import time
-import ccxt
-import pandas as pd
-import pandas_ta as ta
-import requests
+# Server ကို Background တွင် စတင်ခြင်း
+server_thread = threading.Thread(target=run_server, daemon=True)
+server_thread.start()
 
+# API Keys များနှင့် Configuration များ
 API_KEY = 'zbUldORQgWXXn7Zv4WXBSHaCdaMv2aFXu7poayG7AdVHYIm2x9eVRYSwT2Yw5D2Y'
 SECRET_KEY = 'YnwxL4v30mOaf8m5UamkKXm4ZArdOlB60etu5M2BfWItEhV1MFTTnhyAk6sOWTb6'
 TELEGRAM_TOKEN = '8849579856:AAF7kWMMgtCswjY-Vcog-oa0ur16c60dJio'
@@ -74,7 +67,8 @@ def run_bot():
             df = pd.concat([df, macd], axis=1)
             
             current_rsi = df['RSI'].iloc[-1]
-            macd_hist = df['MACDh_12_26_9'].iloc[-1]
+            # pandas_ta ၏ MACD Histogram column နာမည်အမှန်မှာ MACDH ဖြစ်ပါသည်
+            macd_hist = df['MACDH_12_26_9'].iloc[-1]
             
             print(f"စစ်ဆေးနေစဉ်... RSI: {current_rsi:.2f}, MACD Hist: {macd_hist:.4f}")
             
