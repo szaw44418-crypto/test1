@@ -63,16 +63,11 @@ def run_bot():
             df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
             
             df['RSI'] = ta.rsi(df['close'], length=14)
-            macd = ta.macd(df['close'])
-            df = pd.concat([df, macd], axis=1)
-            
-            # DataFrame ထဲမှ MACD Histogram column ကို အလိုအလျောက် ရှာဖွေခြင်း (စာလုံးအကြီး/အသေး မရွေး)
-            hist_col = [col for col in df.columns if 'macdh' in col.lower()]
-            if not hist_col:
-                raise ValueError("MACD Histogram column ကို ရှာမတွေ့ပါ။")
+            macd_df = ta.macd(df['close'])
             
             current_rsi = df['RSI'].iloc[-1]
-            macd_hist = df[hist_col[0]].iloc[-1]
+            # pandas_ta MACD ၏ ဒုတိယမြောက်ကော်လံ (Index 1) သည် Histogram ဖြစ်ပါသည်
+            macd_hist = macd_df.iloc[:, 1].iloc[-1]
             
             print(f"စစ်ဆေးနေစဉ်... RSI: {current_rsi:.2f}, MACD Hist: {macd_hist:.4f}")
             
