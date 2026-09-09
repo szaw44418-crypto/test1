@@ -58,9 +58,11 @@ def run_bot():
     
     while True:
         try:
-            # ဒေတာ အလုံအလောက်ရရှိရန် limit=200 သို့ တိုးမြှင့်ထားပါသည်
             ohlcv = exchange.fetch_ohlcv(symbol, timeframe, limit=200)
             df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            
+            # ဒေတာများကို ဂဏန်းအမျိုးအစား (float) သို့ တိကျစွာပြောင်းလဲခြင်း
+            df['close'] = pd.to_numeric(df['close'], errors='coerce')
             
             # RSI တွက်ချက်ခြင်း (Standard formula)
             delta = df['close'].diff()
@@ -69,7 +71,7 @@ def run_bot():
             rs = gain / loss
             df['RSI'] = 100 - (100 / (1 + rs))
             
-            # MACD ကို Pandas ဖြင့် တိုက်ရိုက် တွက်ချက်ခြင်း
+            # MACD တွက်ချက်ခြင်း
             exp1 = df['close'].ewm(span=12, adjust=False).mean()
             exp2 = df['close'].ewm(span=26, adjust=False).mean()
             macd_line = exp1 - exp2
