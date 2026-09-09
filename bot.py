@@ -39,16 +39,15 @@ exchange = ccxt.binance({
 })
 exchange.set_sandbox_mode(True)
 
-symbol = 'BNB/USDT'
-ticker_symbol = 'BNB-USD'
+symbol = 'BTC/USDT'
+ticker_symbol = 'BTC-USD'
 
-# Bot State Management (Cycle ထိန်းချုပ်ရန်)
 bot_state = {
     "in_position": False,
     "buy_price": 0.0,
-    "amount": 0.05,
-    "target_profit_pct": 0.02, # ၂% အမြတ်ရလျှင် ရောင်းမည်
-    "stop_loss_pct": 0.015     # ၁.၅% ကျလျှင် Stop Loss လုပ်မည်
+    "amount": 0.001,
+    "target_profit_pct": 0.015, # ၁.၅% အမြတ်ရလျှင် ရောင်းမည်
+    "stop_loss_pct": 0.01      # ၁% ကျလျှင် Stop Loss လုပ်မည်
 }
 
 def send_telegram_message(message):
@@ -60,7 +59,7 @@ def send_telegram_message(message):
         print(f"Telegram ပို့ရာတွင် အမှားအယွင်းရှိသည်: {e}")
 
 def run_bot():
-    start_msg = f"🤖 Auto Profit Trading Bot စတင်အလုပ်လုပ်နေပါပြီ ({symbol})..."
+    start_msg = f"🤖 BTC Auto Profit Trading Bot စတင်အလုပ်လုပ်နေပါပြီ ({symbol})..."
     print(start_msg)
     send_telegram_message(start_msg)
     
@@ -76,7 +75,6 @@ def run_bot():
             close_prices = pd.to_numeric(df['Close'], errors='coerce')
             current_price = close_prices.iloc[-1]
             
-            # RSI & MACD တွက်ချက်ခြင်း
             delta = close_prices.diff()
             gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
             loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
@@ -94,37 +92,33 @@ def run_bot():
             
             print(f"ဈေးနှုန်း: {current_price:.2f} | RSI: {current_rsi:.2f} | MACD Hist: {current_macd_hist:.4f} | Position: {bot_state['in_position']}")
             
-            # အကယ်၍ ပစ္စည်း မဝယ်ရသေးလျှင် (Position မရှိသေးလျှင်) အချက်ပြမှုစောင့်မည်
             if not bot_state["in_position"]:
-                if current_rsi < 35 or current_macd_hist > 0: # အချက်ပြမှု အနည်းငယ် လွယ်ကူအောင် ညှိထားသည်
+                # RSI < 50 သို့မဟုတ် MACD Hist > 0 ဖြစ်ပါက အဝယ်အော်ဒါ တင်မည်
+                if current_rsi < 50 or current_macd_hist > 0:
                     try:
                         order = exchange.create_market_buy_order(symbol, bot_state["amount"])
                         bot_state["in_position"] = True
                         bot_state["buy_price"] = current_price
                         
-                        msg = f"🟢 **[Cycle စတင်ခြင်း - အဝယ်အော်ဒါ]**\n📊 ဈေးကွက်: {symbol}\n💰 ဝယ်ဈေး: {current_price:.2f} USDT\n🔹 RSI: {current_rsi:.2f}"
+                        msg = f"🟢 **[BTC Cycle စတင်ခြင်း - အဝယ်အော်ဒါ]**\n📊 ဈေးကွက်: {symbol}\n💰 ဝယ်ဈေး: {current_price:.2f} USDT\n🔹 RSI: {current_rsi:.2f}"
                         send_telegram_message(msg)
                     except Exception as buy_err:
                         print(f"Buy Error: {buy_err}")
-            
-            # အကယ်၍ ပစ္စည်းဝယ်ပြီးသား ဖြစ်နေလျှင် အမြတ်ထုတ်ရန် (Take Profit) သို့မဟုတ် Stop Loss စစ်မည်
             else:
                 buy_price = bot_state["buy_price"]
                 profit_pct = (current_price - buy_price) / buy_price
                 
                 print(f"လက်ရှိ အမြတ်/အရှုံး ရာခိုင်နှုန်း: {profit_pct*100:.2f}%")
                 
-                # Take Profit (သို့) Stop Loss ရောက်ရှိပါက ရောင်းချမည်
                 if profit_pct >= bot_state["target_profit_pct"] or profit_pct <= -bot_state["stop_loss_pct"]:
                     try:
                         order = exchange.create_market_sell_order(symbol, bot_state["amount"])
                         
-                        # Report ထုတ်ရန် တွက်ချက်ခြင်း
                         earned_amount = (current_price - buy_price) * bot_state["amount"]
                         status_emoji = "🎉" if profit_pct > 0 else "⚠️"
                         
                         report_msg = (
-                            f"{status_emoji} **[Cycle ပြီးဆုံးခြင်း - Report အကျဉ်းချုပ်]**\n\n"
+                            f"{status_emoji} **[BTC Cycle ပြီးဆုံးခြင်း - Report အကျဉ်းချုပ်]**\n\n"
                             f"📊 ဈေးကွက်: {symbol}\n"
                             f"📥 ဝယ်ဈေး: {buy_price:.2f} USDT\n"
                             f"📤 ရောင်းဈေး: {current_price:.2f} USDT\n"
@@ -133,13 +127,12 @@ def run_bot():
                         )
                         send_telegram_message(report_msg)
                         
-                        # State ကို ပြန်လည် Reset လုပ်မည်
                         bot_state["in_position"] = False
                         bot_state["buy_price"] = 0.0
                     except Exception as sell_err:
                         print(f"Sell Error: {sell_err}")
 
-            time.sleep(1800) # မိနစ် ၃၀ လျှင် တစ်ကြိမ် စစ်ဆေးမည် (အမြတ်အစွန်း ပိုမိုဖမ်းဆီးနိုင်ရန်)
+            time.sleep(1800)
             
         except Exception as e:
             err_msg = f"❌ Bot အမှားအယွင်း ဖြစ်ပေါ်သည်: {e}"
