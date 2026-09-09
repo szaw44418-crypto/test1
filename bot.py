@@ -66,9 +66,13 @@ def run_bot():
             macd = ta.macd(df['close'])
             df = pd.concat([df, macd], axis=1)
             
+            # DataFrame ထဲမှ MACD Histogram column ကို အလိုအလျောက် ရှာဖွေခြင်း (စာလုံးအကြီး/အသေး မရွေး)
+            hist_col = [col for col in df.columns if 'macdh' in col.lower()]
+            if not hist_col:
+                raise ValueError("MACD Histogram column ကို ရှာမတွေ့ပါ။")
+            
             current_rsi = df['RSI'].iloc[-1]
-            # pandas_ta ၏ MACD Histogram column နာမည်အမှန်မှာ MACDH ဖြစ်ပါသည်
-            macd_hist = df['MACDH_12_26_9'].iloc[-1]
+            macd_hist = df[hist_col[0]].iloc[-1]
             
             print(f"စစ်ဆေးနေစဉ်... RSI: {current_rsi:.2f}, MACD Hist: {macd_hist:.4f}")
             
