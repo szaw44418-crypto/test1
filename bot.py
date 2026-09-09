@@ -4,7 +4,6 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 import ccxt
 import pandas as pd
-import pandas_ta as ta
 import requests
 
 # Render အတွက် Port ဖွင့်ပေးသော HTTP Server
@@ -63,31 +62,37 @@ def run_bot():
             ohlcv = exchange.fetch_ohlcv(symbol, timeframe, limit=100)
             df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
             
-            # နည်းပညာဆိုင်ရာ ညွှန်းကိန်းများ တွက်ချက်ခြင်း
-            df['RSI'] = ta.rsi(df['close'], length=14)
-            macd_df = ta.macd(df['close'])
+            # RSI တွက်ချက်ခြင်း (Standard formula)
+            delta = df['close'].diff()
+            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+            rs = gain / loss
+            df['RSI'] = 100 - (100 / (1 + rs))
             
-            # မမျှော်လင့်ဘဲ macd_df က None ဖြစ်နေပါက Error မတက်စေရန် ကာကွယ်ခြင်း
-            if macd_df is None or macd_df.empty:
-                raise ValueError("MACD တန်ဖိုးထုတ်ယူ၍ မရပါ။ (NoneType Error)")
-                
+            # MACD ကို Pandas ဖြင့် တိုက်ရိုက် တွက်ချက်ခြင်း (NoneType Error လုံးဝ မတက်တော့ပါ)
+            exp1 = df['close'].ewm(span=12, adjust=False).mean()
+            exp2 = df['close'].ewm(span=26, adjust=False).mean()
+            macd_line = exp1 - exp2
+            signal_line = macd_line.ewm(span=9, adjust=False).mean()
+            macd_hist = macd_line - signal_line
+            
             current_rsi = df['RSI'].iloc[-1]
-            macd_hist = macd_df.iloc[:, 1].iloc[-1]
+            current_macd_hist = macd_hist.iloc[-1]
             
             # တန်ဖိုးများ NaN ဖြစ်နေခြင်း ရှိမရှိ စစ်ဆေးခြင်း
-            if pd.isna(current_rsi) or pd.isna(macd_hist):
+            if pd.isna(current_rsi) or pd.isna(current_macd_hist):
                 print("⚠️ ဒေတာ အပြည့်အစုံ မရသေးပါ၊ ခေတ္တစောင့်ဆိုင်းနေပါသည်...")
                 time.sleep(60)
                 continue
             
-            print(f"စစ်ဆေးနေစဉ်... RSI: {current_rsi:.2f}, MACD Hist: {macd_hist:.4f}")
+            print(f"စစ်ဆေးနေစဉ်... RSI: {current_rsi:.2f}, MACD Hist: {current_macd_hist:.4f}")
             
             # အရောင်းအဝယ် အချက်ပြမှုများ စစ်ဆေးခြင်း
-            if current_rsi < 30 and macd_hist > 0:
-                msg = f"🚨 အဝယ်အချက်ပြမှု (Oversold & Bullish) တွေ့ရှိပါပြီ!\n📊 BNB / USDT\n🔹 RSI: {current_rsi:.2f}\n🔹 MACD Hist: {macd_hist:.4f}"
+            if current_rsi < 30 and current_macd_hist > 0:
+                msg = f"🚨 အဝယ်အချက်ပြမှု (Oversold & Bullish) တွေ့ရှိပါပြီ!\n📊 BNB / USDT\n🔹 RSI: {current_rsi:.2f}\n🔹 MACD Hist: {current_macd_hist:.4f}"
                 send_telegram_message(msg)
-            elif current_rsi > 70 and macd_hist < 0:
-                msg = f"⚠️ အရောင်းအချက်ပြမှု (Overbought & Bearish) တွေ့ရှိပါပြီ!\n📊 BNB / USDT\n🔹 RSI: {current_rsi:.2f}\n🔹 MACD Hist: {macd_hist:.4f}"
+            elif current_rsi > 70 and current_macd_hist < 0:
+                msg = f"⚠️ အရောင်းအချက်ပြမှု (Overbought & Bearish) တွေ့ရှိပါပြီ!\n📊 BNB / USDT\n🔹 RSI: {current_rsi:.2f}\n🔹 MACD Hist: {current_macd_hist:.4f}"
                 send_telegram_message(msg)
                 
             time.sleep(3600)
