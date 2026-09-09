@@ -17,6 +17,16 @@ def run_server():
 server_thread = threading.Thread(target=run_server, daemon=True)
 server_thread.start()
 
+class SimpleHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot is running!")
+
+    def do_HEAD(self):
+        self.send_response(200)
+        self.end_headers()
+
 
 import os
 import time
