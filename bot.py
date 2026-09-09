@@ -45,7 +45,8 @@ ticker_symbol = 'BTC-USD'
 bot_state = {
     "in_position": False,
     "buy_price": 0.0,
-    "amount": 0.001,
+    "usdt_amount": 10.0,      # 🛒 ဝယ်ယူမည့် USDT ပမာဏ (ဥပမာ - ၁၀ ဒေါ်လာဖိုး)
+    "purchased_btc": 0.0,     # ဝယ်ယူရရှိလာသော BTC ပမာဏကို မှတ်ရန်
     "target_profit_pct": 0.015, # ၁.၅% အမြတ်ရလျှင် ရောင်းမည်
     "stop_loss_pct": 0.01      # ၁% ကျလျှင် Stop Loss လုပ်မည်
 }
@@ -59,10 +60,16 @@ def send_telegram_message(message):
         print(f"Telegram ပို့ရာတွင် အမှားအယွင်းရှိသည်: {e}")
 
 def run_bot():
-    start_msg = f"🤖 BTC Auto Profit Trading Bot စတင်အလုပ်လုပ်နေပါပြီ ({symbol})..."
+    start_msg = f"🤖 BTC Auto Profit Trading Bot (USDT Amount Mode) စတင်အလုပ်လုပ်နေပါပြီ ({symbol})..."
     print(start_msg)
     send_telegram_message(start_msg)
     
+    # ဈေးကွက်ဒေတာနှင့် ဒဿမတိကျမှု စည်းမျဉ်းများကို ကြိုတင်ရယူရန်
+    try:
+        exchange.load_markets()
+    except Exception as e:
+        print(f"Markets Load Error: {e}")
+
     while True:
         try:
             df = yf.download(ticker_symbol, period="5d", interval="60m", progress=False, multi_level_index=False)
@@ -93,14 +100,23 @@ def run_bot():
             print(f"ဈေးနှုန်း: {current_price:.2f} | RSI: {current_rsi:.2f} | MACD Hist: {current_macd_hist:.4f} | Position: {bot_state['in_position']}")
             
             if not bot_state["in_position"]:
-                # RSI < 50 သို့မဟုတ် MACD Hist > 0 ဖြစ်ပါက အဝယ်အော်ဒါ တင်မည်
                 if current_rsi < 50 or current_macd_hist > 0:
                     try:
-                        order = exchange.create_market_buy_order(symbol, bot_state["amount"])
-                        bot_state["in_position"] = True
-                        bot_state["buy_price"] = current_price
+                        # ဒဿမ error မတက်စေရန် ပမာဏကို ဈေးကွက်စည်းမျဉ်းအတိုင်း ညှိခြင်း
+                        raw_amount = bot_state["usdt_amount"] / current_price
+                        formatted_amount = exchange.amount_to_precision(symbol, raw_amount)
                         
-                        msg = f"🟢 **[BTC Cycle စတင်ခြင်း - အဝယ်အော်ဒါ]**\n📊 ဈေးကွက်: {symbol}\n💰 ဝယ်ဈေး: {current_price:.2f} USDT\n🔹 RSI: {current_rsi:.2f}"
+                        # USDT ပမာဏဖြင့် Market Buy ဝယ်ယူခြင်း
+                        order = exchange.create_order(symbol, 'market', 'buy', float(formatted_amount), None, {'quoteOrderQty': bot_state["usdt_amount"]})
+                        
+                        filled_amount = float(order.get('filled', float(formatted_amount)))
+                        actual_price = float(order.get('average', current_price))
+                        
+                        bot_state["in_position"] = True
+                        bot_state["buy_price"] = actual_price
+                        bot_state["purchased_btc"] = filled_amount
+                        
+                        msg = f"🟢 **[BTC Cycle စတင်ခြင်း - USDT ဖြင့် အဝယ်အော်ဒါ]**\n📊 ဈေးကွက်: {symbol}\n💰 သုံးစွဲငွေ: {bot_state['usdt_amount']} USDT\n📥 ဝယ်ဈေး: {actual_price:.2f} USDT\n🪙 ရရှိလာသည့် BTC: {filled_amount:.6f}\n🔹 RSI: {current_rsi:.2f}"
                         send_telegram_message(msg)
                     except Exception as buy_err:
                         print(f"Buy Error: {buy_err}")
@@ -112,9 +128,13 @@ def run_bot():
                 
                 if profit_pct >= bot_state["target_profit_pct"] or profit_pct <= -bot_state["stop_loss_pct"]:
                     try:
-                        order = exchange.create_market_sell_order(symbol, bot_state["amount"])
+                        # ရောင်းချမည့်ပမာဏကို ဒဿမ error ကင်းစေရန် ထပ်မံညှိခြင်း
+                        sell_amount = bot_state["purchased_btc"]
+                        formatted_sell_amount = exchange.amount_to_precision(symbol, sell_amount)
                         
-                        earned_amount = (current_price - buy_price) * bot_state["amount"]
+                        order = exchange.create_market_sell_order(symbol, float(formatted_sell_amount))
+                        
+                        earned_amount = (current_price - buy_price) * sell_amount
                         status_emoji = "🎉" if profit_pct > 0 else "⚠️"
                         
                         report_msg = (
@@ -129,6 +149,7 @@ def run_bot():
                         
                         bot_state["in_position"] = False
                         bot_state["buy_price"] = 0.0
+                        bot_state["purchased_btc"] = 0.0
                     except Exception as sell_err:
                         print(f"Sell Error: {sell_err}")
 
