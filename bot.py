@@ -48,7 +48,7 @@ def send_telegram_message(message):
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         payload = {'chat_id': CHAT_ID, 'text': message}
-        requests.post(url, json=payload)
+        requests.post(url, json=payload, timeout=10)
     except Exception as e:
         print(f"Telegram ပို့ရာတွင် အမှားအယွင်းရှိသည်: {e}")
 
@@ -59,28 +59,42 @@ def run_bot():
     
     while True:
         try:
+            # လုံလောက်သော Data ပမာဏ (limit=100) ဖြင့် ယူခြင်း
             ohlcv = exchange.fetch_ohlcv(symbol, timeframe, limit=100)
             df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
             
+            # နည်းပညာဆိုင်ရာ ညွှန်းကိန်းများ တွက်ချက်ခြင်း
             df['RSI'] = ta.rsi(df['close'], length=14)
             macd_df = ta.macd(df['close'])
             
+            # မမျှော်လင့်ဘဲ macd_df က None ဖြစ်နေပါက Error မတက်စေရန် ကာကွယ်ခြင်း
+            if macd_df is None or macd_df.empty:
+                raise ValueError("MACD တန်ဖိုးထုတ်ယူ၍ မရပါ။ (NoneType Error)")
+                
             current_rsi = df['RSI'].iloc[-1]
-            # pandas_ta MACD ၏ ဒုတိယမြောက်ကော်လံ (Index 1) သည် Histogram ဖြစ်ပါသည်
             macd_hist = macd_df.iloc[:, 1].iloc[-1]
+            
+            # တန်ဖိုးများ NaN ဖြစ်နေခြင်း ရှိမရှိ စစ်ဆေးခြင်း
+            if pd.isna(current_rsi) or pd.isna(macd_hist):
+                print("⚠️ ဒေတာ အပြည့်အစုံ မရသေးပါ၊ ခေတ္တစောင့်ဆိုင်းနေပါသည်...")
+                time.sleep(60)
+                continue
             
             print(f"စစ်ဆေးနေစဉ်... RSI: {current_rsi:.2f}, MACD Hist: {macd_hist:.4f}")
             
+            # အရောင်းအဝယ် အချက်ပြမှုများ စစ်ဆေးခြင်း
             if current_rsi < 30 and macd_hist > 0:
-                msg = f"🚨 အဝယ်အချက်ပြမှု (Oversold & Bullish) တွေ့ရှိပါပြီ! RSI: {current_rsi:.2f}"
+                msg = f"🚨 အဝယ်အချက်ပြမှု (Oversold & Bullish) တွေ့ရှိပါပြီ!\n📊 BNB / USDT\n🔹 RSI: {current_rsi:.2f}\n🔹 MACD Hist: {macd_hist:.4f}"
                 send_telegram_message(msg)
-            elif current_rsi > 70:
-                msg = f"⚠️ အရောင်းအချက်ပြမှု (Overbought) တွေ့ရှိပါပြီ! RSI: {current_rsi:.2f}"
+            elif current_rsi > 70 and macd_hist < 0:
+                msg = f"⚠️ အရောင်းအချက်ပြမှု (Overbought & Bearish) တွေ့ရှိပါပြီ!\n📊 BNB / USDT\n🔹 RSI: {current_rsi:.2f}\n🔹 MACD Hist: {macd_hist:.4f}"
                 send_telegram_message(msg)
                 
             time.sleep(3600)
+            
         except Exception as e:
             err_msg = f"❌ Bot အမှားအယွင်း ဖြစ်ပေါ်သည်: {e}"
+            print(err_msg)
             send_telegram_message(err_msg)
             time.sleep(60)
 
