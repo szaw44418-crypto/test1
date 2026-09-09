@@ -26,16 +26,12 @@ def run_server():
 server_thread = threading.Thread(target=run_server, daemon=True)
 server_thread.start()
 
-# API Keys များနှင့် Configuration များ
-API_KEY = 'zbUldORQgWXXn7Zv4WXBSHaCdaMv2aFXu7poayG7AdVHYIm2x9eVRYSwT2Yw5D2Y'
-SECRET_KEY = 'YnwxL4v30mOaf8m5UamkKXm4ZArdOlB60etu5M2BfWItEhV1MFTTnhyAk6sOWTb6'
+# Telegram Configuration သာ လိုအပ်ပါတော့သည်
 TELEGRAM_TOKEN = '8849579856:AAF7kWMMgtCswjY-Vcog-oa0ur16c60dJio'
 CHAT_ID = '6127362073'
 
-# Sandbox Mode ကို ဖြုတ်လိုက်ပြီး Live Public Market Data ကို တိုက်ရိုက်ယူမည်
+# Public Market Data ဖတ်ရန် API Key မလိုအပ်တော့ပါ
 exchange = ccxt.binance({
-    'apiKey': API_KEY,
-    'secret': SECRET_KEY,
     'enableRateLimit': True,
     'options': {'defaultType': 'spot'}
 })
