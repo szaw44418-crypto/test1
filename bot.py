@@ -32,13 +32,13 @@ SECRET_KEY = 'YnwxL4v30mOaf8m5UamkKXm4ZArdOlB60etu5M2BfWItEhV1MFTTnhyAk6sOWTb6'
 TELEGRAM_TOKEN = '8849579856:AAF7kWMMgtCswjY-Vcog-oa0ur16c60dJio'
 CHAT_ID = '6127362073'
 
+# Sandbox Mode ကို ဖြုတ်လိုက်ပြီး Live Public Market Data ကို တိုက်ရိုက်ယူမည်
 exchange = ccxt.binance({
     'apiKey': API_KEY,
     'secret': SECRET_KEY,
     'enableRateLimit': True,
     'options': {'defaultType': 'spot'}
 })
-exchange.set_sandbox_mode(True)
 
 symbol = 'BNB/USDT'
 timeframe = '1h'
@@ -64,7 +64,7 @@ def run_bot():
             # ဒေတာများကို ဂဏန်းအမျိုးအစား (float) သို့ တိကျစွာပြောင်းလဲခြင်း
             df['close'] = pd.to_numeric(df['close'], errors='coerce')
             
-            # RSI တွက်ချက်ခြင်း (Standard formula)
+            # RSI တွက်ချက်ခြင်း
             delta = df['close'].diff()
             gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
             loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
