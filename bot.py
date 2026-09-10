@@ -30,12 +30,7 @@ CHAT_ID = '6127362073'
 SPOT_API_KEY = os.environ.get("SPOT_API_KEY", "EGMDZzNYcF8aHKsKGxWurbK63sLFdKA42cDEZC3zd8IPkyD3JDEH7btCt4D34aWV")
 SPOT_SECRET_KEY = os.environ.get("SPOT_SECRET_KEY", "YfGOumNKz4MMbZ9MBy7aMB3R6CWxSjVljJvreup8k3BGL5pi1pqc73ieCpOghM8R")
 
-# Rate limit နှင့် Error ကင်းရှင်းစေရန် Public Exchange တစ်ခုတည်းကိုသာ သုံးမည်
-public_exchange = ccxt.binance({
-    'enableRateLimit': True,
-    'options': {'defaultType': 'spot'}
-})
-
+# အော်ဒါတင်ရန်အတွက်သာ Binance Testnet ကို သုံးမည်
 trading_exchange = ccxt.binance({
     'apiKey': SPOT_API_KEY,
     'secret': SPOT_SECRET_KEY,
@@ -44,25 +39,26 @@ trading_exchange = ccxt.binance({
 })
 trading_exchange.set_sandbox_mode(True)
 
+# CoinGecko ID များနှင့် Binance Symbol များကို ချိတ်ဆက်ခြင်း
 coins = [
-    "XRP/USDT",
-    "DOGE/USDT",
-    "TRX/USDT",
-    "LINK/USDT",
-    "AVAX/USDT",
-    "SUI/USDT",
-    "PEPE/USDT"
+    {"symbol": "XRP/USDT", "coingecko_id": "ripple"},
+    {"symbol": "DOGE/USDT", "coingecko_id": "dogecoin"},
+    {"symbol": "TRX/USDT", "coingecko_id": "tron"},
+    {"symbol": "LINK/USDT", "coingecko_id": "chainlink"},
+    {"symbol": "AVAX/USDT", "coingecko_id": "avalanche-2"},
+    {"symbol": "SUI/USDT", "coingecko_id": "sui"},
+    {"symbol": "PEPE/USDT", "coingecko_id": "pepe"}
 ]
 
 bot_states = {
-    symbol: {
+    coin["symbol"]: {
         "in_position": False,
         "buy_price": 0.0,
         "usdt_amount": 10.0,
         "purchased_amount": 0.0,
         "target_profit_pct": 0.015,
         "stop_loss_pct": 0.01
-    } for symbol in coins
+    } for coin in coins
 }
 
 def send_telegram_message(message):
@@ -74,45 +70,58 @@ def send_telegram_message(message):
         print(f"Telegram ပို့ရာတွင် အမှားအယွင်းရှိသည်: {e}")
 
 def run_bot():
-    start_msg = "🤖 Multi-Coin Auto Profit Trading Bot (Rate Limit Optimized) စတင်အလုပ်လုပ်နေပါပြီ..."
+    start_msg = "🤖 Multi-Coin Auto Profit Trading Bot (CoinGecko Data + Testnet Trading) စတင်အလုပ်လုပ်နေပါပြီ..."
     print(start_msg)
     send_telegram_message(start_msg)
     
+    # ဈေးနှုန်း မှတ်တမ်းများ သိမ်းဆည်းရန်
+    price_history = {coin["symbol"]: [] for coin in coins}
+
     while True:
-        for symbol in coins:
+        for coin in coins:
+            symbol = coin["symbol"]
+            cg_id = coin["coingecko_id"]
             bot_state = bot_states[symbol]
             
             try:
-                # API Weight သက်သာစေရန် limit 50 သာ ဆွဲယူမည်
-                ohlcv = public_exchange.fetch_ohlcv(symbol, timeframe='1h', limit=50)
-                if not ohlcv or len(ohlcv) < 30:
-                    print(f"⚠️ {symbol} အတွက် ဒေတာ အပြည့်အစုံ မရသေးပါ...")
-                    time.sleep(3)
+                # CoinGecko API မှ လက်ရှိဈေးနှုန်း တိုက်ရိုက်ရယူခြင်း (IP ban လုံးဝမရှိပါ)
+                url = f"https://api.coingecko.com/api/v3/simple/price?ids={cg_id}&vs_currencies=usdt"
+                response = requests.get(url, timeout=10)
+                data = response.json()
+                
+                if cg_id not in data or "usdt" not in data[cg_id]:
+                    print(f"⚠️ {symbol} အတွက် ဈေးနှုန်းဒေတာ မရသေးပါ...")
+                    time.sleep(2)
                     continue
                 
-                df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-                close_prices = pd.to_numeric(df['close'], errors='coerce')
-                current_price = close_prices.iloc[-1]
+                current_price = float(data[cg_id]["usdt"])
                 
-                delta = close_prices.diff()
-                gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-                loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-                rsi = 100 - (100 / (1 + (gain / loss)))
+                # ဈေးနှုန်းမှတ်တမ်းထဲသို့ ထည့်မည် (Maximum 30 ခုထိ ထိန်းမည်)
+                price_history[symbol].append(current_price)
+                if len(price_history[symbol]) > 30:
+                    price_history[symbol].pop(0)
                 
-                macd_line = close_prices.ewm(span=12, adjust=False).mean() - close_prices.ewm(span=26, adjust=False).mean()
-                macd_hist = macd_line - macd_line.ewm(span=9, adjust=False).mean()
-                
-                current_rsi = rsi.iloc[-1]
-                current_macd_hist = macd_hist.iloc[-1]
-                
-                if pd.isna(current_rsi) or pd.isna(current_macd_hist):
-                    time.sleep(3)
+                if len(price_history[symbol]) < 15:
+                    print(f"[{symbol}] ဈေးနှုန်း: {current_price} | ဒေတာ စုဆောင်းနေဆဲ ({len(price_history[symbol])}/15)...")
+                    time.sleep(2)
                     continue
                 
-                print(f"[{symbol}] ဈေးနှုန်း: {current_price} | RSI: {current_rsi:.2f} | MACD Hist: {current_macd_hist:.4f} | Position: {bot_state['in_position']}")
+                # အညွှန်းကိန်းများ တွက်ချက်ခြင်း (Simple RSI & Moving Average Proxy)
+                prices = pd.Series(price_history[symbol])
+                delta = prices.diff()
+                gain = (delta.where(delta > 0, 0)).rolling(window=10).mean().iloc[-1]
+                loss = (-delta.where(delta < 0, 0)).rolling(window=10).mean().iloc[-1]
+                
+                if loss == 0:
+                    rsi = 100
+                else:
+                    rs = gain / loss
+                    rsi = 100 - (100 / (1 + rs))
+                
+                print(f"[{symbol}] ဈေးနှုန်း: {current_price} | RSI (Approx): {rsi:.2f} | Position: {bot_state['in_position']}")
                 
                 if not bot_state["in_position"]:
-                    if current_rsi < 50 or current_macd_hist > 0:
+                    if rsi < 50:  # အဝယ်အချက်ပြမှု
                         try:
                             raw_amount = bot_state["usdt_amount"] / current_price
                             formatted_amount = trading_exchange.amount_to_precision(symbol, raw_amount)
@@ -126,7 +135,7 @@ def run_bot():
                             bot_state["buy_price"] = actual_price
                             bot_state["purchased_amount"] = filled_amount
                             
-                            msg = f"🟢 **[{symbol} Cycle စတင်ခြင်း]**\n💰 သုံးစွဲငွေ: {bot_state['usdt_amount']} USDT\n📥 ဝယ်ဈေး: {actual_price} USDT\n🪙 ရရှိလာသည့်ပမာဏ: {filled_amount}\n🔹 RSI: {current_rsi:.2f}"
+                            msg = f"🟢 **[{symbol} Cycle စတင်ခြင်း]**\n💰 သုံးစွဲငွေ: {bot_state['usdt_amount']} USDT\n📥 ဝယ်ဈေး: {actual_price} USDT\n🪙 ရရှိလာသည့်ပမာဏ: {filled_amount}\n🔹 RSI: {rsi:.2f}"
                             send_telegram_message(msg)
                         except Exception as buy_err:
                             print(f"[{symbol}] Buy Error: {buy_err}")
@@ -161,14 +170,12 @@ def run_bot():
                         except Exception as sell_err:
                             print(f"[{symbol}] Sell Error: {sell_err}")
                 
-                # Coin တစ်ခုချင်းစီကြား ၃ စက္ကန့်စီ အနားပေးခြင်းဖြင့် IP ban ကို ကာကွယ်မည်
                 time.sleep(3)
                 
             except Exception as coin_err:
                 print(f"Error checking {symbol}: {coin_err}")
-                time.sleep(5)
+                time.sleep(3)
 
-        # ပတ်လည်စစ်ဆေးပြီးပါက ၁၅ မိနစ် (900 စက္ကန့်) စောင့်မည်
         time.sleep(900)
 
 if __name__ == "__main__":
