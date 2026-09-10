@@ -30,6 +30,7 @@ CHAT_ID = '6127362073'
 SPOT_API_KEY = os.environ.get("SPOT_API_KEY", "EGMDZzNYcF8aHKsKGxWurbK63sLFdKA42cDEZC3zd8IPkyD3JDEH7btCt4D34aWV")
 SPOT_SECRET_KEY = os.environ.get("SPOT_SECRET_KEY", "YfGOumNKz4MMbZ9MBy7aMB3R6CWxSjVljJvreup8k3BGL5pi1pqc73ieCpOghM8R")
 
+# CCXT Exchange ကို တည်ဆောက်ခြင်း
 trading_exchange = ccxt.binance({
     'apiKey': SPOT_API_KEY,
     'secret': SPOT_SECRET_KEY,
@@ -68,7 +69,7 @@ def send_telegram_message(message):
         print(f"Telegram ပို့ရာတွင် အမှားအယွင်းရှိသည်: {e}")
 
 def run_bot():
-    start_msg = "🤖 Multi-Coin Auto Profit Trading Bot (Direct HTTP Ticker + Testnet) စတင်အလုပ်လုပ်နေပါပြီ..."
+    start_msg = "🤖 Multi-Coin Auto Profit Trading Bot (CCXT Native Engine) စတင်အလုပ်လုပ်နေပါပြီ..."
     print(start_msg)
     send_telegram_message(start_msg)
     
@@ -77,20 +78,11 @@ def run_bot():
     while True:
         for symbol in coins:
             bot_state = bot_states[symbol]
-            binance_symbol = symbol.replace("/", "")
             
             try:
-                # Binance Public API (Weight အလွန်နည်းပြီး IP ban ကင်းဝေးသည်)
-                url = f"https://api.binance.com/api/v3/ticker/price?symbol={binance_symbol}"
-                response = requests.get(url, timeout=10)
-                data = response.json()
-                
-                if "price" not in data:
-                    print(f"⚠️ {symbol} ဈေးနှုန်းဒေတာ မရရှိပါ...")
-                    time.sleep(2)
-                    continue
-                
-                current_price = float(data["price"])
+                # requests အစား CCXT ၏ fetch_ticker ကို သုံးခြင်း (Cloud Server IP များကို Block လုပ်ခြင်းမှ ရှောင်ရှားနိုင်သည်)
+                ticker = trading_exchange.fetch_ticker(symbol)
+                current_price = float(ticker['last'])
                 
                 price_history[symbol].append(current_price)
                 if len(price_history[symbol]) > 30:
@@ -170,7 +162,7 @@ def run_bot():
                 print(f"Error checking {symbol}: {coin_err}")
                 time.sleep(3)
 
-        time.sleep(300)
+        time.sleep(60)
 
 if __name__ == "__main__":
     run_bot()
