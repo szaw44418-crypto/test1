@@ -30,13 +30,12 @@ CHAT_ID = '6127362073'
 SPOT_API_KEY = os.environ.get("SPOT_API_KEY", "EGMDZzNYcF8aHKsKGxWurbK63sLFdKA42cDEZC3zd8IPkyD3JDEH7btCt4D34aWV")
 SPOT_SECRET_KEY = os.environ.get("SPOT_SECRET_KEY", "YfGOumNKz4MMbZ9MBy7aMB3R6CWxSjVljJvreup8k3BGL5pi1pqc73ieCpOghM8R")
 
-# ဈေးနှုန်းဒေတာ (OHLCV) မှန်ကန်စွာရရှိရန် Mainnet public market data ကို အသုံးပြုမည်
+# Rate limit နှင့် Error ကင်းရှင်းစေရန် Public Exchange တစ်ခုတည်းကိုသာ သုံးမည်
 public_exchange = ccxt.binance({
     'enableRateLimit': True,
     'options': {'defaultType': 'spot'}
 })
 
-# အော်ဒါတင်ရန်အတွက်မူ Testnet (Sandbox) ကို ဆက်သုံးမည်
 trading_exchange = ccxt.binance({
     'apiKey': SPOT_API_KEY,
     'secret': SPOT_SECRET_KEY,
@@ -75,25 +74,20 @@ def send_telegram_message(message):
         print(f"Telegram ပို့ရာတွင် အမှားအယွင်းရှိသည်: {e}")
 
 def run_bot():
-    start_msg = "🤖 Multi-Coin Auto Profit Trading Bot (Live Data + Testnet Trading) စတင်အလုပ်လုပ်နေပါပြီ..."
+    start_msg = "🤖 Multi-Coin Auto Profit Trading Bot (Rate Limit Optimized) စတင်အလုပ်လုပ်နေပါပြီ..."
     print(start_msg)
     send_telegram_message(start_msg)
     
-    try:
-        public_exchange.load_markets()
-        trading_exchange.load_markets()
-    except Exception as e:
-        print(f"Markets Load Error: {e}")
-
     while True:
         for symbol in coins:
             bot_state = bot_states[symbol]
             
             try:
-                # တိကျမှန်ကန်သော Binance Mainnet မှ 1 hour ဒေတာ 100 bars ဆွဲယူခြင်း
-                ohlcv = public_exchange.fetch_ohlcv(symbol, timeframe='1h', limit=100)
+                # API Weight သက်သာစေရန် limit 50 သာ ဆွဲယူမည်
+                ohlcv = public_exchange.fetch_ohlcv(symbol, timeframe='1h', limit=50)
                 if not ohlcv or len(ohlcv) < 30:
                     print(f"⚠️ {symbol} အတွက် ဒေတာ အပြည့်အစုံ မရသေးပါ...")
+                    time.sleep(3)
                     continue
                 
                 df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
@@ -112,6 +106,7 @@ def run_bot():
                 current_macd_hist = macd_hist.iloc[-1]
                 
                 if pd.isna(current_rsi) or pd.isna(current_macd_hist):
+                    time.sleep(3)
                     continue
                 
                 print(f"[{symbol}] ဈေးနှုန်း: {current_price} | RSI: {current_rsi:.2f} | MACD Hist: {current_macd_hist:.4f} | Position: {bot_state['in_position']}")
@@ -166,11 +161,14 @@ def run_bot():
                         except Exception as sell_err:
                             print(f"[{symbol}] Sell Error: {sell_err}")
                 
-                time.sleep(5)
+                # Coin တစ်ခုချင်းစီကြား ၃ စက္ကန့်စီ အနားပေးခြင်းဖြင့် IP ban ကို ကာကွယ်မည်
+                time.sleep(3)
                 
             except Exception as coin_err:
                 print(f"Error checking {symbol}: {coin_err}")
+                time.sleep(5)
 
+        # ပတ်လည်စစ်ဆေးပြီးပါက ၁၅ မိနစ် (900 စက္ကန့်) စောင့်မည်
         time.sleep(900)
 
 if __name__ == "__main__":
