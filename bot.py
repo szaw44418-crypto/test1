@@ -39,16 +39,27 @@ exchange = ccxt.binance({
 })
 exchange.set_sandbox_mode(True)
 
-symbol = 'BTC/USDT'
-ticker_symbol = 'BTC-USD'
+# Coin ၇ မျိုး (BNB, ETH, BTC, SOL, ADA မပါဝင်ပါ)
+coins = [
+    {"symbol": "XRP/USDT", "ticker": "XRP-USD"},
+    {"symbol": "DOGE/USDT", "ticker": "DOGE-USD"},
+    {"symbol": "TRX/USDT", "ticker": "TRX-USD"},
+    {"symbol": "LINK/USDT", "ticker": "LINK-USD"},
+    {"symbol": "AVAX/USDT", "ticker": "AVAX-USD"},
+    {"symbol": "SUI/USDT", "ticker": "SUI-USD"},
+    {"symbol": "PEPE/USDT", "ticker": "PEPE-USD"}
+]
 
-bot_state = {
-    "in_position": False,
-    "buy_price": 0.0,
-    "usdt_amount": 10.0,      # 🛒 ဝယ်ယူမည့် USDT ပမာဏ (ဥပမာ - ၁၀ ဒေါ်လာဖိုး)
-    "purchased_btc": 0.0,     # ဝယ်ယူရရှိလာသော BTC ပမာဏကို မှတ်ရန်
-    "target_profit_pct": 0.015, # ၁.၅% အမြတ်ရလျှင် ရောင်းမည်
-    "stop_loss_pct": 0.01      # ၁% ကျလျှင် Stop Loss လုပ်မည်
+# တစ်ခုချင်းစီအတွက် bot အနေအထားများကို သိမ်းဆည်းရန် dict တည်ဆောက်ခြင်း
+bot_states = {
+    coin["symbol"]: {
+        "in_position": False,
+        "buy_price": 0.0,
+        "usdt_amount": 10.0,
+        "purchased_amount": 0.0,
+        "target_profit_pct": 0.015,
+        "stop_loss_pct": 0.01
+    } for coin in coins
 }
 
 def send_telegram_message(message):
@@ -60,106 +71,103 @@ def send_telegram_message(message):
         print(f"Telegram ပို့ရာတွင် အမှားအယွင်းရှိသည်: {e}")
 
 def run_bot():
-    start_msg = f"🤖 BTC Auto Profit Trading Bot (USDT Amount Mode) စတင်အလုပ်လုပ်နေပါပြီ ({symbol})..."
+    start_msg = "🤖 Multi-Coin Auto Profit Trading Bot (Coin ၇ မျိုးစလုံးအတွက်) စတင်အလုပ်လုပ်နေပါပြီ..."
     print(start_msg)
     send_telegram_message(start_msg)
     
-    # ဈေးကွက်ဒေတာနှင့် ဒဿမတိကျမှု စည်းမျဉ်းများကို ကြိုတင်ရယူရန်
     try:
         exchange.load_markets()
     except Exception as e:
         print(f"Markets Load Error: {e}")
 
     while True:
-        try:
-            df = yf.download(ticker_symbol, period="5d", interval="60m", progress=False, multi_level_index=False)
+        for coin in coins:
+            symbol = coin["symbol"]
+            ticker_symbol = coin["ticker"]
+            bot_state = bot_states[symbol]
             
-            if df.empty or len(df) < 30:
-                print("⚠️ ဒေတာ အပြည့်အစုံ မရသေးပါ...")
-                time.sleep(300)
-                continue
+            try:
+                df = yf.download(ticker_symbol, period="5d", interval="60m", progress=False, multi_level_index=False)
                 
-            close_prices = pd.to_numeric(df['Close'], errors='coerce')
-            current_price = close_prices.iloc[-1]
-            
-            delta = close_prices.diff()
-            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-            rsi = 100 - (100 / (1 + (gain / loss)))
-            
-            macd_line = close_prices.ewm(span=12, adjust=False).mean() - close_prices.ewm(span=26, adjust=False).mean()
-            macd_hist = macd_line - macd_line.ewm(span=9, adjust=False).mean()
-            
-            current_rsi = rsi.iloc[-1]
-            current_macd_hist = macd_hist.iloc[-1]
-            
-            if pd.isna(current_rsi) or pd.isna(current_macd_hist):
-                time.sleep(300)
-                continue
-            
-            print(f"ဈေးနှုန်း: {current_price:.2f} | RSI: {current_rsi:.2f} | MACD Hist: {current_macd_hist:.4f} | Position: {bot_state['in_position']}")
-            
-            if not bot_state["in_position"]:
-                if current_rsi < 50 or current_macd_hist > 0:
-                    try:
-                        # ဒဿမ error မတက်စေရန် ပမာဏကို ဈေးကွက်စည်းမျဉ်းအတိုင်း ညှိခြင်း
-                        raw_amount = bot_state["usdt_amount"] / current_price
-                        formatted_amount = exchange.amount_to_precision(symbol, raw_amount)
-                        
-                        # USDT ပမာဏဖြင့် Market Buy ဝယ်ယူခြင်း
-                        order = exchange.create_order(symbol, 'market', 'buy', float(formatted_amount), None, {'quoteOrderQty': bot_state["usdt_amount"]})
-                        
-                        filled_amount = float(order.get('filled', float(formatted_amount)))
-                        actual_price = float(order.get('average', current_price))
-                        
-                        bot_state["in_position"] = True
-                        bot_state["buy_price"] = actual_price
-                        bot_state["purchased_btc"] = filled_amount
-                        
-                        msg = f"🟢 **[BTC Cycle စတင်ခြင်း - USDT ဖြင့် အဝယ်အော်ဒါ]**\n📊 ဈေးကွက်: {symbol}\n💰 သုံးစွဲငွေ: {bot_state['usdt_amount']} USDT\n📥 ဝယ်ဈေး: {actual_price:.2f} USDT\n🪙 ရရှိလာသည့် BTC: {filled_amount:.6f}\n🔹 RSI: {current_rsi:.2f}"
-                        send_telegram_message(msg)
-                    except Exception as buy_err:
-                        print(f"Buy Error: {buy_err}")
-            else:
-                buy_price = bot_state["buy_price"]
-                profit_pct = (current_price - buy_price) / buy_price
+                if df.empty or len(df) < 30:
+                    print(f"⚠️ {symbol} အတွက် ဒေတာ အပြည့်အစုံ မရသေးပါ...")
+                    continue
+                    
+                close_prices = pd.to_numeric(df['Close'], errors='coerce')
+                current_price = close_prices.iloc[-1]
                 
-                print(f"လက်ရှိ အမြတ်/အရှုံး ရာခိုင်နှုန်း: {profit_pct*100:.2f}%")
+                delta = close_prices.diff()
+                gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+                loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+                rsi = 100 - (100 / (1 + (gain / loss)))
                 
-                if profit_pct >= bot_state["target_profit_pct"] or profit_pct <= -bot_state["stop_loss_pct"]:
-                    try:
-                        # ရောင်းချမည့်ပမာဏကို ဒဿမ error ကင်းစေရန် ထပ်မံညှိခြင်း
-                        sell_amount = bot_state["purchased_btc"]
-                        formatted_sell_amount = exchange.amount_to_precision(symbol, sell_amount)
-                        
-                        order = exchange.create_market_sell_order(symbol, float(formatted_sell_amount))
-                        
-                        earned_amount = (current_price - buy_price) * sell_amount
-                        status_emoji = "🎉" if profit_pct > 0 else "⚠️"
-                        
-                        report_msg = (
-                            f"{status_emoji} **[BTC Cycle ပြီးဆုံးခြင်း - Report အကျဉ်းချုပ်]**\n\n"
-                            f"📊 ဈေးကွက်: {symbol}\n"
-                            f"📥 ဝယ်ဈေး: {buy_price:.2f} USDT\n"
-                            f"📤 ရောင်းဈေး: {current_price:.2f} USDT\n"
-                            f"📈 ရာခိုင်နှုန်း: {profit_pct*100:+.2f}%\n"
-                            f"💵 အမြတ်/အရှုံး: {earned_amount:+.2f} USDT"
-                        )
-                        send_telegram_message(report_msg)
-                        
-                        bot_state["in_position"] = False
-                        bot_state["buy_price"] = 0.0
-                        bot_state["purchased_btc"] = 0.0
-                    except Exception as sell_err:
-                        print(f"Sell Error: {sell_err}")
+                macd_line = close_prices.ewm(span=12, adjust=False).mean() - close_prices.ewm(span=26, adjust=False).mean()
+                macd_hist = macd_line - macd_line.ewm(span=9, adjust=False).mean()
+                
+                current_rsi = rsi.iloc[-1]
+                current_macd_hist = macd_hist.iloc[-1]
+                
+                if pd.isna(current_rsi) or pd.isna(current_macd_hist):
+                    continue
+                
+                print(f"[{symbol}] ဈေးနှုန်း: {current_price} | RSI: {current_rsi:.2f} | MACD Hist: {current_macd_hist:.4f} | Position: {bot_state['in_position']}")
+                
+                if not bot_state["in_position"]:
+                    if current_rsi < 50 or current_macd_hist > 0:
+                        try:
+                            raw_amount = bot_state["usdt_amount"] / current_price
+                            formatted_amount = exchange.amount_to_precision(symbol, raw_amount)
+                            
+                            order = exchange.create_order(symbol, 'market', 'buy', float(formatted_amount), None, {'quoteOrderQty': bot_state["usdt_amount"]})
+                            
+                            filled_amount = float(order.get('filled', float(formatted_amount)))
+                            actual_price = float(order.get('average', current_price))
+                            
+                            bot_state["in_position"] = True
+                            bot_state["buy_price"] = actual_price
+                            bot_state["purchased_amount"] = filled_amount
+                            
+                            msg = f"🟢 **[{symbol} Cycle စတင်ခြင်း]**\n💰 သုံးစွဲငွေ: {bot_state['usdt_amount']} USDT\n📥 ဝယ်ဈေး: {actual_price} USDT\n🪙 ရရှိလာသည့်ပမာဏ: {filled_amount}\n🔹 RSI: {current_rsi:.2f}"
+                            send_telegram_message(msg)
+                        except Exception as buy_err:
+                            print(f"[{symbol}] Buy Error: {buy_err}")
+                else:
+                    buy_price = bot_state["buy_price"]
+                    profit_pct = (current_price - buy_price) / buy_price
+                    
+                    print(f"[{symbol}] လက်ရှိ အမြတ်/အရှုံး: {profit_pct*100:.2f}%")
+                    
+                    if profit_pct >= bot_state["target_profit_pct"] or profit_pct <= -bot_state["stop_loss_pct"]:
+                        try:
+                            sell_amount = bot_state["purchased_amount"]
+                            formatted_sell_amount = exchange.amount_to_precision(symbol, sell_amount)
+                            
+                            order = exchange.create_market_sell_order(symbol, float(formatted_sell_amount))
+                            
+                            earned_amount = (current_price - buy_price) * sell_amount
+                            status_emoji = "🎉" if profit_pct > 0 else "⚠️"
+                            
+                            report_msg = (
+                                f"{status_emoji} **[{symbol} Cycle ပြီးဆုံးခြင်း]**\n\n"
+                                f"📥 ဝယ်ဈေး: {buy_price} USDT\n"
+                                f"📤 ရောင်းဈေး: {current_price} USDT\n"
+                                f"📈 ရာခိုင်နှုန်း: {profit_pct*100:+.2f}%\n"
+                                f"💵 အမြတ်/အရှုံး: {earned_amount:+.2f} USDT"
+                            )
+                            send_telegram_message(report_msg)
+                            
+                            bot_state["in_position"] = False
+                            bot_state["buy_price"] = 0.0
+                            bot_state["purchased_amount"] = 0.0
+                        except Exception as sell_err:
+                            print(f"[{symbol}] Sell Error: {sell_err}")
+                
+                time.sleep(5) # Coin တစ်ခုနှင့် တစ်ခု API request ကြား ခေတ္တစောင့်ရန်
+                
+            coin_err_pass = except Exception as coin_err:
+                print(f"Error checking {symbol}: {coin_err}")
 
-            time.sleep(1800)
-            
-        except Exception as e:
-            err_msg = f"❌ Bot အမှားအယွင်း ဖြစ်ပေါ်သည်: {e}"
-            print(err_msg)
-            send_telegram_message(err_msg)
-            time.sleep(900)
+        time.sleep(900) # Coin ၇ မျိုးလုံးကို တစ်ပတ်စစ်ပြီးလျှင် မိနစ် 20 စောင့်ရန်
 
 if __name__ == "__main__":
     run_bot()
