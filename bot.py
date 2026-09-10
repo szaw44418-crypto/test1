@@ -30,15 +30,21 @@ CHAT_ID = '6127362073'
 SPOT_API_KEY = os.environ.get("SPOT_API_KEY", "EGMDZzNYcF8aHKsKGxWurbK63sLFdKA42cDEZC3zd8IPkyD3JDEH7btCt4D34aWV")
 SPOT_SECRET_KEY = os.environ.get("SPOT_SECRET_KEY", "YfGOumNKz4MMbZ9MBy7aMB3R6CWxSjVljJvreup8k3BGL5pi1pqc73ieCpOghM8R")
 
-exchange = ccxt.binance({
+# ဈေးနှုန်းဒေတာ (OHLCV) မှန်ကန်စွာရရှိရန် Mainnet public market data ကို အသုံးပြုမည်
+public_exchange = ccxt.binance({
+    'enableRateLimit': True,
+    'options': {'defaultType': 'spot'}
+})
+
+# အော်ဒါတင်ရန်အတွက်မူ Testnet (Sandbox) ကို ဆက်သုံးမည်
+trading_exchange = ccxt.binance({
     'apiKey': SPOT_API_KEY,
     'secret': SPOT_SECRET_KEY,
     'enableRateLimit': True,
     'options': {'defaultType': 'spot'}
 })
-exchange.set_sandbox_mode(True)
+trading_exchange.set_sandbox_mode(True)
 
-# Coin ၇ မျိုး (Binance Symbol အတိုင်း တိုက်ရိုက်သုံးမည်)
 coins = [
     "XRP/USDT",
     "DOGE/USDT",
@@ -69,12 +75,13 @@ def send_telegram_message(message):
         print(f"Telegram ပို့ရာတွင် အမှားအယွင်းရှိသည်: {e}")
 
 def run_bot():
-    start_msg = "🤖 Multi-Coin Auto Profit Trading Bot (Binance Data Direct) စတင်အလုပ်လုပ်နေပါပြီ..."
+    start_msg = "🤖 Multi-Coin Auto Profit Trading Bot (Live Data + Testnet Trading) စတင်အလုပ်လုပ်နေပါပြီ..."
     print(start_msg)
     send_telegram_message(start_msg)
     
     try:
-        exchange.load_markets()
+        public_exchange.load_markets()
+        trading_exchange.load_markets()
     except Exception as e:
         print(f"Markets Load Error: {e}")
 
@@ -83,8 +90,8 @@ def run_bot():
             bot_state = bot_states[symbol]
             
             try:
-                # Binance မှ 1 hour ေဒတာ 100 bars ဆွဲယူခြင်း
-                ohlcv = exchange.fetch_ohlcv(symbol, timeframe='1h', limit=100)
+                # တိကျမှန်ကန်သော Binance Mainnet မှ 1 hour ဒေတာ 100 bars ဆွဲယူခြင်း
+                ohlcv = public_exchange.fetch_ohlcv(symbol, timeframe='1h', limit=100)
                 if not ohlcv or len(ohlcv) < 30:
                     print(f"⚠️ {symbol} အတွက် ဒေတာ အပြည့်အစုံ မရသေးပါ...")
                     continue
@@ -113,9 +120,9 @@ def run_bot():
                     if current_rsi < 50 or current_macd_hist > 0:
                         try:
                             raw_amount = bot_state["usdt_amount"] / current_price
-                            formatted_amount = exchange.amount_to_precision(symbol, raw_amount)
+                            formatted_amount = trading_exchange.amount_to_precision(symbol, raw_amount)
                             
-                            order = exchange.create_order(symbol, 'market', 'buy', float(formatted_amount), None, {'quoteOrderQty': bot_state["usdt_amount"]})
+                            order = trading_exchange.create_order(symbol, 'market', 'buy', float(formatted_amount), None, {'quoteOrderQty': bot_state["usdt_amount"]})
                             
                             filled_amount = float(order.get('filled', float(formatted_amount)))
                             actual_price = float(order.get('average', current_price))
@@ -137,9 +144,9 @@ def run_bot():
                     if profit_pct >= bot_state["target_profit_pct"] or profit_pct <= -bot_state["stop_loss_pct"]:
                         try:
                             sell_amount = bot_state["purchased_amount"]
-                            formatted_sell_amount = exchange.amount_to_precision(symbol, sell_amount)
+                            formatted_sell_amount = trading_exchange.amount_to_precision(symbol, sell_amount)
                             
-                            order = exchange.create_market_sell_order(symbol, float(formatted_sell_amount))
+                            order = trading_exchange.create_market_sell_order(symbol, float(formatted_sell_amount))
                             
                             earned_amount = (current_price - buy_price) * sell_amount
                             status_emoji = "🎉" if profit_pct > 0 else "⚠️"
