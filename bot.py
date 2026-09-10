@@ -50,7 +50,6 @@ coins = [
     {"symbol": "PEPE/USDT", "ticker": "PEPE-USD"}
 ]
 
-# တစ်ခုချင်းစီအတွက် bot အနေအထားများကို သိမ်းဆည်းရန် dict တည်ဆောက်ခြင်း
 bot_states = {
     coin["symbol"]: {
         "in_position": False,
@@ -162,12 +161,12 @@ def run_bot():
                         except Exception as sell_err:
                             print(f"[{symbol}] Sell Error: {sell_err}")
                 
-                time.sleep(5) # Coin တစ်ခုနှင့် တစ်ခု API request ကြား ခေတ္တစောင့်ရန်
+                time.sleep(5)
                 
-            coin_err_pass = except Exception as coin_err:
+            except Exception as coin_err:
                 print(f"Error checking {symbol}: {coin_err}")
 
-        time.sleep(900) # Coin ၇ မျိုးလုံးကို တစ်ပတ်စစ်ပြီးလျှင် မိနစ် 20 စောင့်ရန်
+        time.sleep(900)
 
 if __name__ == "__main__":
     run_bot()
