@@ -3,7 +3,6 @@ import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 import pandas as pd
-import yfinance as yf
 import ccxt
 import requests
 
@@ -39,26 +38,26 @@ exchange = ccxt.binance({
 })
 exchange.set_sandbox_mode(True)
 
-# Coin ၇ မျိုး (BNB, ETH, BTC, SOL, ADA မပါဝင်ပါ)
+# Coin ၇ မျိုး (Binance Symbol အတိုင်း တိုက်ရိုက်သုံးမည်)
 coins = [
-    {"symbol": "XRP/USDT", "ticker": "XRP-USD"},
-    {"symbol": "DOGE/USDT", "ticker": "DOGE-USD"},
-    {"symbol": "TRX/USDT", "ticker": "TRX-USD"},
-    {"symbol": "LINK/USDT", "ticker": "LINK-USD"},
-    {"symbol": "AVAX/USDT", "ticker": "AVAX-USD"},
-    {"symbol": "SUI/USDT", "ticker": "SUI-USD"},
-    {"symbol": "PEPE/USDT", "ticker": "PEPE-USD"}
+    "XRP/USDT",
+    "DOGE/USDT",
+    "TRX/USDT",
+    "LINK/USDT",
+    "AVAX/USDT",
+    "SUI/USDT",
+    "PEPE/USDT"
 ]
 
 bot_states = {
-    coin["symbol"]: {
+    symbol: {
         "in_position": False,
         "buy_price": 0.0,
         "usdt_amount": 10.0,
         "purchased_amount": 0.0,
         "target_profit_pct": 0.015,
         "stop_loss_pct": 0.01
-    } for coin in coins
+    } for symbol in coins
 }
 
 def send_telegram_message(message):
@@ -70,7 +69,7 @@ def send_telegram_message(message):
         print(f"Telegram ပို့ရာတွင် အမှားအယွင်းရှိသည်: {e}")
 
 def run_bot():
-    start_msg = "🤖 Multi-Coin Auto Profit Trading Bot (Coin ၇ မျိုးစလုံးအတွက်) စတင်အလုပ်လုပ်နေပါပြီ..."
+    start_msg = "🤖 Multi-Coin Auto Profit Trading Bot (Binance Data Direct) စတင်အလုပ်လုပ်နေပါပြီ..."
     print(start_msg)
     send_telegram_message(start_msg)
     
@@ -80,19 +79,18 @@ def run_bot():
         print(f"Markets Load Error: {e}")
 
     while True:
-        for coin in coins:
-            symbol = coin["symbol"]
-            ticker_symbol = coin["ticker"]
+        for symbol in coins:
             bot_state = bot_states[symbol]
             
             try:
-                df = yf.download(ticker_symbol, period="5d", interval="60m", progress=False, multi_level_index=False)
-                
-                if df.empty or len(df) < 30:
+                # Binance မှ 1 hour ေဒတာ 100 bars ဆွဲယူခြင်း
+                ohlcv = exchange.fetch_ohlcv(symbol, timeframe='1h', limit=100)
+                if not ohlcv or len(ohlcv) < 30:
                     print(f"⚠️ {symbol} အတွက် ဒေတာ အပြည့်အစုံ မရသေးပါ...")
                     continue
-                    
-                close_prices = pd.to_numeric(df['Close'], errors='coerce')
+                
+                df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+                close_prices = pd.to_numeric(df['close'], errors='coerce')
                 current_price = close_prices.iloc[-1]
                 
                 delta = close_prices.diff()
