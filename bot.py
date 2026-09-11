@@ -11,7 +11,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "🤖 Net Profit Scalping Bot (10 Sets) is running live!"
+    return "🤖 Net-Profit Scalping Bot (10 Sets with Tag) is running live!"
 
 def run_web():
     port = int(os.environ.get("PORT", 10000))
@@ -34,8 +34,7 @@ COINS = [
 ]
 
 CAPITAL_PER_ORDER = 10.0  
-# Trading Fee (0.2% စုစုပေါင်း) နှုတ်ပြီးလျှင် အသားတင် 1% တိကျစွာကျန်ရန် 1.2% သို့ တိုးမြှင့်ထားသည်
-PROFIT_TARGET_PCT = 0.012   
+PROFIT_TARGET_PCT = 0.012   # Net 1% ကျန်ရန် 1.2% သတ်မှတ်ထားသည်
 STOP_LOSS_PCT = 0.025      # အရှုံး ၂.၅%
 
 symbol_info_cache = {}
@@ -76,7 +75,7 @@ def format_quantity(symbol, qty):
 def check_market_conditions(symbol):
     try:
         klines = client.get_klines(symbol=symbol, interval=Client.KLINE_INTERVAL_15MINUTE, limit=60)
-        if not klines or len(klines) < 50: return False
+        if not klines or len(klines) < 50: return False, None
         
         df = pd.DataFrame(klines, columns=['t','open','high','low','close','v','ct','qav','nt','tb','tq','ig'])
         
@@ -124,18 +123,29 @@ def check_market_conditions(symbol):
         set_9 = (prev_close <= bb_mid.iloc[-2]) and (curr_close > bb_mid.iloc[-1]) and (curr_rsi > 50)
         set_10 = (df['close'].iloc[-3] < df['open'].iloc[-3]) and (df['close'].iloc[-2] < df['open'].iloc[-2]) and (curr_close > df['open'].iloc[-1]) and (curr_rsi > prev_rsi)
 
-        return (set_1 or set_2 or set_3 or set_4 or set_5 or 
-                set_6 or set_7 or set_8 or set_9 or set_10)
+        # တွဲအလိုက် စစ်ဆေးပြီး ကိုက်ညီသည့် Set နံပါတ်ကို ပြန်ပေးရန်
+        if set_1: return True, "Set 1 (EMA50+RSI)"
+        if set_2: return True, "Set 2 (BB Lower)"
+        if set_3: return True, "Set 3 (MACD Cross)"
+        if set_4: return True, "Set 4 (Volume Spike)"
+        if set_5: return True, "Set 5 (Extreme RSI)"
+        if set_6: return True, "Set 6 (EMA 9/20 Cross)"
+        if set_7: return True, "Set 7 (Pinbar)"
+        if set_8: return True, "Set 8 (Mid-RSI Recovery)"
+        if set_9: return True, "Set 9 (BB Middle Cross)"
+        if set_10: return True, "Set 10 (3 Red Reversal)"
+
+        return False, None
         
     except Exception as e:
         print(f"Condition check error [{symbol}]: {e}")
-        return False
+        return False, None
 
 def coin_trade_worker(symbol):
-    print(f"🔄 Net-Profit Worker started for {symbol}...")
+    print(f"🔄 Labeled Worker started for {symbol}...")
     while True:
         try:
-            should_buy = check_market_conditions(symbol)
+            should_buy, matched_set = check_market_conditions(symbol)
             
             if should_buy:
                 curr_price = float(client.get_symbol_ticker(symbol=symbol)['price'])
@@ -146,7 +156,8 @@ def coin_trade_worker(symbol):
                 total_coins = float(order['executedQty'])
                 total_cost = total_coins * exec_price
                 
-                send_telegram(f"🟢 *[{symbol}] Buy Executed (Net Target)*\n• Price: `{exec_price}`\n• Cost: `{total_cost:.2f} USDT`")
+                # Telegram စာပို့ရာတွင် ဘယ် Set နဲ့ ငြိလို့ဝယ်ကြောင်း ထည့်သွင်းထားသည်
+                send_telegram(f"🟢 *[{symbol}] Buy Executed*\n• Trigger: `{matched_set}`\n• Price: `{exec_price}`\n• Cost: `{total_cost:.2f} USDT`")
                 
                 target_sell = format_price(symbol, exec_price * (1 + PROFIT_TARGET_PCT))
                 stop_loss_price = format_price(symbol, exec_price * (1 - STOP_LOSS_PCT))
@@ -190,7 +201,7 @@ def coin_trade_worker(symbol):
         time.sleep(20)
 
 def run_concurrent_bots():
-    msg = f"🚀 *Net-Profit Scalping Bot Started* (Coins: {len(COINS)}, Sets: 10)"
+    msg = f"🚀 *Labeled Scalping Bot Started* (Coins: {len(COINS)}, Sets: 10)"
     print(msg)
     send_telegram(msg)
     
