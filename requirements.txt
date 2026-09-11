@@ -1,6 +1,5 @@
 ccxt
 pandas
 requests
-pandas-ta
-yfinance
 flask
+python-binance
