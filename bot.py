@@ -1,163 +1,212 @@
 import os
 import time
-from http.server import HTTPServer, BaseHTTPRequestHandler
-import threading
-import pandas as pd
-import ccxt
+import math
 import requests
+from threading import Thread
+from flask import Flask
+import pandas as pd
+from binance.client import Client
 
-class SimpleHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"Trading Bot is running!")
+app = Flask(__name__)
 
-    def do_HEAD(self):
-        self.send_response(200)
-        self.end_headers()
+@app.route('/')
+def home():
+    return "🤖 Net Profit Scalping Bot (10 Sets) is running live!"
 
-def run_server():
+def run_web():
     port = int(os.environ.get("PORT", 10000))
-    server = HTTPServer(("0.0.0.0", port), SimpleHandler)
-    server.serve_forever()
+    app.run(host="0.0.0.0", port=port)
 
-server_thread = threading.Thread(target=run_server, daemon=True)
-server_thread.start()
-
-TELEGRAM_TOKEN = '8849579856:AAF7kWMMgtCswjY-Vcog-oa0ur16c60dJio'
-CHAT_ID = '6127362073'
-
+SPOT_BASE = "https://testnet.binance.vision"
 SPOT_API_KEY = os.environ.get("SPOT_API_KEY", "EGMDZzNYcF8aHKsKGxWurbK63sLFdKA42cDEZC3zd8IPkyD3JDEH7btCt4D34aWV")
 SPOT_SECRET_KEY = os.environ.get("SPOT_SECRET_KEY", "YfGOumNKz4MMbZ9MBy7aMB3R6CWxSjVljJvreup8k3BGL5pi1pqc73ieCpOghM8R")
 
-trading_exchange = ccxt.binance({
-    'apiKey': SPOT_API_KEY,
-    'secret': SPOT_SECRET_KEY,
-    'enableRateLimit': True,
-    'options': {'defaultType': 'spot'}
-})
-trading_exchange.set_sandbox_mode(True)
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
 
-coins = [
-    "XRP/USDT",
-    "DOGE/USDT",
-    "TRX/USDT",
-    "LINK/USDT",
-    "AVAX/USDT",
-    "SUI/USDT",
-    "PEPE/USDT"
+client = Client(SPOT_API_KEY, SPOT_SECRET_KEY, testnet=True)
+client.API_URL = f"{SPOT_BASE}/api"
+
+COINS = [
+    "LTCUSDT", "BCHUSDT", "ETCUSDT", "NEARUSDT", 
+    "ATOMUSDT", "SHIBUSDT", "ARBUSDT", "OPUSDT", 
+    "FILUSDT", "ICPUSDT"
 ]
 
-bot_states = {
-    symbol: {
-        "in_position": False,
-        "buy_price": 0.0,
-        "usdt_amount": 10.0,
-        "purchased_amount": 0.0,
-        "target_profit_pct": 0.015,
-        "stop_loss_pct": 0.01
-    } for symbol in coins
-}
+CAPITAL_PER_ORDER = 10.0  
+# Trading Fee (0.2% စုစုပေါင်း) နှုတ်ပြီးလျှင် အသားတင် 1% တိကျစွာကျန်ရန် 1.2% သို့ တိုးမြှင့်ထားသည်
+PROFIT_TARGET_PCT = 0.012   
+STOP_LOSS_PCT = 0.025      # အရှုံး ၂.၅%
 
-def send_telegram_message(message):
+symbol_info_cache = {}
+
+def send_telegram(message):
+    if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
+        try:
+            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+            payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"}
+            requests.post(url, json=payload, timeout=5)
+        except Exception as e:
+            print(f"Telegram Error: {e}")
+
+def get_symbol_filter(symbol, filter_type):
+    if symbol not in symbol_info_cache:
+        try:
+            info = client.get_symbol_info(symbol)
+            if info: symbol_info_cache[symbol] = info
+        except Exception: return None
+    info = symbol_info_cache.get(symbol)
+    if info:
+        for f in info['filters']:
+            if f['filterType'] == filter_type: return f
+    return None
+
+def format_price(symbol, price):
+    pf = get_symbol_filter(symbol, 'PRICE_FILTER')
+    if not pf: return round(price, 2)
+    tick = float(pf['tickSize'])
+    return round(round(price / tick) * tick, int(round(-math.log10(tick))))
+
+def format_quantity(symbol, qty):
+    lf = get_symbol_filter(symbol, 'LOT_SIZE')
+    if not lf: return round(qty, 5)
+    step = float(lf['stepSize'])
+    return round(round(qty / step) * step, int(round(-math.log10(step))))
+
+def check_market_conditions(symbol):
     try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        payload = {'chat_id': CHAT_ID, 'text': message}
-        requests.post(url, json=payload, timeout=10)
+        klines = client.get_klines(symbol=symbol, interval=Client.KLINE_INTERVAL_15MINUTE, limit=60)
+        if not klines or len(klines) < 50: return False
+        
+        df = pd.DataFrame(klines, columns=['t','open','high','low','close','v','ct','qav','nt','tb','tq','ig'])
+        
+        df['open'] = df['open'].astype(float)
+        df['high'] = df['high'].astype(float)
+        df['low'] = df['low'].astype(float)
+        df['close'] = df['close'].astype(float)
+        df['volume'] = df['v'].astype(float)
+        
+        df['EMA50'] = df['close'].ewm(span=50, adjust=False).mean()
+        df['EMA20'] = df['close'].ewm(span=20, adjust=False).mean()
+        df['EMA9'] = df['close'].ewm(span=9, adjust=False).mean()
+        
+        delta = df['close'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+        df['RSI'] = 100 - (100 / (1 + (gain / loss)))
+        
+        bb_mid = df['close'].rolling(window=20).mean()
+        bb_std = df['close'].rolling(window=20).std()
+        df['BB_Lower'] = bb_mid - (2 * bb_std)
+        df['BB_Upper'] = bb_mid + (2 * bb_std)
+        
+        exp1 = df['close'].ewm(span=12, adjust=False).mean()
+        exp2 = df['close'].ewm(span=26, adjust=False).mean()
+        df['MACD'] = exp1 - exp2
+        df['MACD_Signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
+        
+        df['Vol_SMA20'] = df['volume'].rolling(window=20).mean()
+
+        curr_close = df['close'].iloc[-1]
+        prev_close = df['close'].iloc[-2]
+        curr_rsi = df['RSI'].iloc[-1]
+        prev_rsi = df['RSI'].iloc[-2]
+        
+        # --- တွဲ ၁၀ ခု သတ်မှတ်ချက်များ ---
+        set_1 = (curr_close > df['EMA50'].iloc[-1]) and (prev_rsi < 38) and (curr_rsi > prev_rsi) and (curr_rsi < 50)
+        set_2 = (prev_close <= df['BB_Lower'].iloc[-2]) and (curr_close > df['BB_Lower'].iloc[-1]) and (curr_rsi < 35) and (curr_rsi > prev_rsi)
+        set_3 = (df['MACD'].iloc[-2] <= df['MACD_Signal'].iloc[-2]) and (df['MACD'].iloc[-1] > df['MACD_Signal'].iloc[-1]) and (curr_close > df['EMA20'].iloc[-1])
+        set_4 = (df['volume'].iloc[-1] > (df['Vol_SMA20'].iloc[-1] * 2)) and (curr_close > prev_close)
+        set_5 = (prev_rsi < 25) and (curr_rsi > prev_rsi + 3)
+        set_6 = (df['EMA9'].iloc[-2] <= df['EMA20'].iloc[-2]) and (df['EMA9'].iloc[-1] > df['EMA20'].iloc[-1])
+        set_7 = (df['low'].iloc[-1] < df['low'].iloc[-2]) and (curr_close > df['open'].iloc[-1]) and (curr_close > prev_close)
+        set_8 = (prev_rsi >= 35) and (prev_rsi <= 45) and (curr_rsi > prev_rsi) and (curr_close > df['EMA20'].iloc[-1])
+        set_9 = (prev_close <= bb_mid.iloc[-2]) and (curr_close > bb_mid.iloc[-1]) and (curr_rsi > 50)
+        set_10 = (df['close'].iloc[-3] < df['open'].iloc[-3]) and (df['close'].iloc[-2] < df['open'].iloc[-2]) and (curr_close > df['open'].iloc[-1]) and (curr_rsi > prev_rsi)
+
+        return (set_1 or set_2 or set_3 or set_4 or set_5 or 
+                set_6 or set_7 or set_8 or set_9 or set_10)
+        
     except Exception as e:
-        print(f"Telegram ပို့ရာတွင် အမှားအယွင်းရှိသည်: {e}")
+        print(f"Condition check error [{symbol}]: {e}")
+        return False
 
-def run_bot():
-    start_msg = "🤖 Fast Trading Bot (Instant Execution) စတင်အလုပ်လုပ်နေပါပြီ..."
-    print(start_msg)
-    send_telegram_message(start_msg)
-    
-    price_history = {symbol: [] for symbol in coins}
-
+def coin_trade_worker(symbol):
+    print(f"🔄 Net-Profit Worker started for {symbol}...")
     while True:
-        for symbol in coins:
-            bot_state = bot_states[symbol]
+        try:
+            should_buy = check_market_conditions(symbol)
             
-            try:
-                ticker = trading_exchange.fetch_ticker(symbol)
-                current_price = float(ticker['last'])
+            if should_buy:
+                curr_price = float(client.get_symbol_ticker(symbol=symbol)['price'])
+                buy_qty = format_quantity(symbol, CAPITAL_PER_ORDER / curr_price)
                 
-                price_history[symbol].append(current_price)
-                if len(price_history[symbol]) > 10:
-                    price_history[symbol].pop(0)
+                order = client.create_order(symbol=symbol, side='BUY', type='MARKET', quantity=buy_qty, recvWindow=60000)
+                exec_price = float(order.get('fills', [{}])[0].get('price', curr_price))
+                total_coins = float(order['executedQty'])
+                total_cost = total_coins * exec_price
                 
-                # ဒေတာ ၅ ခုပြည့်သည်နှင့် ချက်ချင်း စတင်မည်
-                if len(price_history[symbol]) < 5:
-                    print(f"[{symbol}] ဈေးနှုန်း: {current_price} | ဒေတာ စုဆောင်းနေဆဲ ({len(price_history[symbol])}/5)...")
-                    continue
+                send_telegram(f"🟢 *[{symbol}] Buy Executed (Net Target)*\n• Price: `{exec_price}`\n• Cost: `{total_cost:.2f} USDT`")
                 
-                prices = pd.Series(price_history[symbol])
-                delta = prices.diff()
-                gain = (delta.where(delta > 0, 0)).rolling(window=3).mean().iloc[-1]
-                loss = (-delta.where(delta < 0, 0)).rolling(window=3).mean().iloc[-1]
+                target_sell = format_price(symbol, exec_price * (1 + PROFIT_TARGET_PCT))
+                stop_loss_price = format_price(symbol, exec_price * (1 - STOP_LOSS_PCT))
                 
-                if pd.isna(gain) or pd.isna(loss) or loss == 0:
-                    rsi = 50.0
-                else:
-                    rs = gain / loss
-                    rsi = 100 - (100 / (1 + rs))
+                sell_order = client.create_order(
+                    symbol=symbol, side='SELL', type='LIMIT', timeInForce='GTC',
+                    quantity=format_quantity(symbol, total_coins), price=str(target_sell), recvWindow=60000
+                )
                 
-                print(f"[{symbol}] ဈေးနှုန်း: {current_price} | RSI: {rsi:.2f} | Position: {bot_state['in_position']}")
+                order_id = sell_order['orderId']
+                trade_successful = False
+                exit_price = exec_price
                 
-                if not bot_state["in_position"]:
-                    if rsi < 55:  # ဝယ်ယူရန် အခြေအနေ
-                        try:
-                            raw_amount = bot_state["usdt_amount"] / current_price
-                            formatted_amount = trading_exchange.amount_to_precision(symbol, raw_amount)
-                            
-                            order = trading_exchange.create_order(symbol, 'market', 'buy', float(formatted_amount), None, {'quoteOrderQty': bot_state["usdt_amount"]})
-                            
-                            filled_amount = float(order.get('filled', float(formatted_amount)))
-                            actual_price = float(order.get('average', current_price))
-                            
-                            bot_state["in_position"] = True
-                            bot_state["buy_price"] = actual_price
-                            bot_state["purchased_amount"] = filled_amount
-                            
-                            msg = f"🟢 **[{symbol} Cycle စတင်ခြင်း]**\n💰 သုံးစွဲငွေ: {bot_state['usdt_amount']} USDT\n📥 ဝယ်ဈေး: {actual_price} USDT\n🪙 ရရှိလာသည့်ပမာဏ: {filled_amount}\n🔹 RSI: {rsi:.2f}"
-                            send_telegram_message(msg)
-                        except Exception as buy_err:
-                            print(f"[{symbol}] Buy Error: {buy_err}")
-                else:
-                    buy_price = bot_state["buy_price"]
-                    profit_pct = (current_price - buy_price) / buy_price
+                while True:
+                    chk = client.get_order(symbol=symbol, orderId=order_id)
+                    if chk['status'] == 'FILLED':
+                        trade_successful = True
+                        exit_price = target_sell
+                        break
                     
-                    print(f"[{symbol}] လက်ရှိ အမြတ်/အရှုံး: {profit_pct*100:.2f}%")
-                    
-                    if profit_pct >= bot_state["target_profit_pct"] or profit_pct <= -bot_state["stop_loss_pct"]:
-                        try:
-                            sell_amount = bot_state["purchased_amount"]
-                            formatted_sell_amount = trading_exchange.amount_to_precision(symbol, sell_amount)
-                            
-                            order = trading_exchange.create_market_sell_order(symbol, float(formatted_sell_amount))
-                            
-                            earned_amount = (current_price - buy_price) * sell_amount
-                            status_emoji = "🎉" if profit_pct > 0 else "⚠️"
-                            
-                            report_msg = (
-                                f"{status_emoji} **[{symbol} Cycle ပြီးဆုံးခြင်း]**\n\n"
-                                f"📥 ဝယ်ဈေး: {buy_price} USDT\n"
-                                f"📤 ရောင်းဈေး: {current_price} USDT\n"
-                                f"📈 ရာခိုင်နှုန်း: {profit_pct*100:+.2f}%\n"
-                                f"💵 အမြတ်/အရှုံး: {earned_amount:+.2f} USDT"
-                            )
-                            send_telegram_message(report_msg)
-                            
-                            bot_state["in_position"] = False
-                            bot_state["buy_price"] = 0.0
-                            bot_state["purchased_amount"] = 0.0
-                        except Exception as sell_err:
-                            print(f"[{symbol}] Sell Error: {sell_err}")
+                    live_p = float(client.get_symbol_ticker(symbol=symbol)['price'])
+                    if live_p <= stop_loss_price:
+                        client.cancel_order(symbol=symbol, orderId=order_id)
+                        client.create_order(symbol=symbol, side='SELL', type='MARKET', quantity=format_quantity(symbol, total_coins), recvWindow=60000)
+                        exit_price = live_p
+                        send_telegram(f"🚨 *[{symbol}] Stop-Loss Triggered*\n• Exit Price: `{live_p}`")
+                        break
+                    time.sleep(10)
                 
-            except Exception as coin_err:
-                print(f"Error checking {symbol}: {coin_err}")
+                total_revenue = total_coins * exit_price
+                net_profit = total_revenue - total_cost
+                
+                if trade_successful:
+                    send_telegram(f"✅ *[{symbol}] Cycle Completed (PROFIT)*\n• Net Profit: `+{net_profit:.2f} USDT`\n• Exit Price: `{exit_price}`")
+                else:
+                    send_telegram(f"❌ *[{symbol}] Cycle Stopped (LOSS)*\n• Net Loss: `{net_profit:.2f} USDT`\n• Exit Price: `{exit_price}`")
+                    
+        except Exception as e:
+            print(f"Error in worker {symbol}: {e}")
+        
+        time.sleep(20)
 
-        time.sleep(5)
+def run_concurrent_bots():
+    msg = f"🚀 *Net-Profit Scalping Bot Started* (Coins: {len(COINS)}, Sets: 10)"
+    print(msg)
+    send_telegram(msg)
+    
+    threads = []
+    for symbol in COINS:
+        t = Thread(target=coin_trade_worker, args=(symbol,))
+        t.daemon = True
+        t.start()
+        threads.append(t)
+        time.sleep(1)
+        
+    for t in threads:
+        t.join()
 
 if __name__ == "__main__":
-    run_bot()
+    bot_thread = Thread(target=run_concurrent_bots)
+    bot_thread.daemon = True
+    bot_thread.start()
+    run_web()
