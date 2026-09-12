@@ -11,7 +11,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "🤖 Net-Profit Scalping Bot (30 Sets with Tag) is running live!"
+    return "🤖 Net-Profit Scalping Bot (Profit: 3%, SL: 2%) is running live!"
 
 def run_web():
     port = int(os.environ.get("PORT", 10000))
@@ -21,23 +21,25 @@ SPOT_BASE = "https://testnet.binance.vision"
 SPOT_API_KEY = os.environ.get("SPOT_API_KEY", "EGMDZzNYcF8aHKsKGxWurbK63sLFdKA42cDEZC3zd8IPkyD3JDEH7btCt4D34aWV")
 SPOT_SECRET_KEY = os.environ.get("SPOT_SECRET_KEY", "YfGOumNKz4MMbZ9MBy7aMB3R6CWxSjVljJvreup8k3BGL5pi1pqc73ieCpOghM8R")
 
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+# ပေးထားသော Telegram Bot Token နှင့် Chat ID အသစ်များ
+TELEGRAM_BOT_TOKEN = "8849579856:AAF7kWMMgtCswjY-Vcog-oa0ur16c60dJio"
+TELEGRAM_CHAT_ID = "6127362073"
 
 client = Client(SPOT_API_KEY, SPOT_SECRET_KEY, testnet=True)
 client.API_URL = f"{SPOT_BASE}/api"
 
 COINS = [
     "LTCUSDT", "BCHUSDT", "ETCUSDT", "NEARUSDT", 
-    "ATOMUSDT", "SHIBUSDT", "ARBUSDT", "OPUSDT", 
+    "ATOMUSDT", "SOLUSDT", "ARBUSDT", "OPUSDT", 
     "FILUSDT", "ICPUSDT"
 ]
 
 CAPITAL_PER_ORDER = 10.0  
-PROFIT_TARGET_PCT = 0.012   # Net 1% ကျန်ရန် 1.2% သတ်မှတ်ထားသည်
-STOP_LOSS_PCT = 0.025      # အရှုံး ၂.၅%
+PROFIT_TARGET_PCT = 0.03   # Profit 3% သတ်မှတ်သည်
+STOP_LOSS_PCT = 0.02       # Stop Loss 2% သတ်မှတ်သည်
 
 symbol_info_cache = {}
+active_trades = {}  
 
 def send_telegram(message):
     if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
@@ -126,7 +128,6 @@ def check_market_conditions(symbol):
         ema20_curr, ema20_prev = df['EMA20'].iloc[-1], df['EMA20'].iloc[-2]
         ema50_curr = df['EMA50'].iloc[-1]
         
-        # --- တွဲ ၁၀ ခု သတ်မှတ်ချက်များ ---
         set_1 = (curr_close > ema50_curr) and (prev_rsi < 38) and (curr_rsi > prev_rsi) and (curr_rsi < 50)
         set_2 = (prev_close <= df['BB_Lower'].iloc[-2]) and (curr_close > bb_lower_curr) and (curr_rsi < 35) and (curr_rsi > prev_rsi)
         set_3 = (prev_macd <= prev_sig) and (curr_macd > curr_sig) and (curr_close > ema20_curr)
@@ -138,7 +139,6 @@ def check_market_conditions(symbol):
         set_9 = (prev_close <= bb_mid_prev) and (curr_close > bb_mid_curr) and (curr_rsi > 50)
         set_10 = (df['close'].iloc[-3] < df['open'].iloc[-3]) and (prev_close < prev_open) and (curr_close > curr_open) and (curr_rsi > prev_rsi)
 
-        # --- ၂ ခုတွဲ သတ်မှတ်ချက် Set ၂၀ ခု (Set 11 မှ Set 30) ---
         set_11 = (curr_rsi < 40) and (prev_macd <= prev_sig and curr_macd > curr_sig)
         set_12 = (curr_close <= bb_lower_curr * 1.015) and (curr_rsi < 30)
         set_13 = (ema9_prev <= ema20_prev and ema9_curr > ema20_curr) and (curr_vol > vol_sma * 1.5)
@@ -160,7 +160,6 @@ def check_market_conditions(symbol):
         set_29 = (curr_low <= ema50_curr and curr_close > ema50_curr) and (curr_rsi > prev_rsi)
         set_30 = (((bb_upper_curr - bb_lower_curr) / curr_close) < 0.05) and (curr_vol > vol_sma * 2 and curr_close > curr_open)
 
-        # တွဲအလိုက် စစ်ဆေးပြီး ကိုက်ညီသည့် Set နံပါတ်ကို ပြန်ပေးရန်
         if set_1: return True, "Set 1 (EMA50+RSI)"
         if set_2: return True, "Set 2 (BB Lower)"
         if set_3: return True, "Set 3 (MACD Cross)"
@@ -171,7 +170,6 @@ def check_market_conditions(symbol):
         if set_8: return True, "Set 8 (Mid-RSI Recovery)"
         if set_9: return True, "Set 9 (BB Middle Cross)"
         if set_10: return True, "Set 10 (3 Red Reversal)"
-        
         if set_11: return True, "Set 11 (RSI+MACD Cross)"
         if set_12: return True, "Set 12 (BB Low+RSI <30)"
         if set_13: return True, "Set 13 (EMA Cross+Vol)"
@@ -200,12 +198,17 @@ def check_market_conditions(symbol):
         return False, None
 
 def coin_trade_worker(symbol):
-    print(f"🔄 Labeled Worker started for {symbol}...")
+    print(f"🔄 Worker started for {symbol}...")
     while True:
         try:
+            if active_trades.get(symbol, False):
+                time.sleep(30)
+                continue
+
             should_buy, matched_set = check_market_conditions(symbol)
             
             if should_buy:
+                active_trades[symbol] = True
                 curr_price = float(client.get_symbol_ticker(symbol=symbol)['price'])
                 buy_qty = format_quantity(symbol, CAPITAL_PER_ORDER / curr_price)
                 
@@ -240,7 +243,7 @@ def coin_trade_worker(symbol):
                         client.cancel_order(symbol=symbol, orderId=order_id)
                         client.create_order(symbol=symbol, side='SELL', type='MARKET', quantity=format_quantity(symbol, total_coins), recvWindow=60000)
                         exit_price = live_p
-                        send_telegram(f"🚨 *[{symbol}] Stop-Loss Triggered*\n• Exit Price: `{live_p}`")
+                        send_telegram(f"🚨 *[{symbol}] Stop-Loss Triggered*\n• Triggered by: `{matched_set}`\n• Exit Price: `{live_p}`")
                         break
                     time.sleep(10)
                 
@@ -248,17 +251,20 @@ def coin_trade_worker(symbol):
                 net_profit = total_revenue - total_cost
                 
                 if trade_successful:
-                    send_telegram(f"✅ *[{symbol}] Cycle Completed (PROFIT)*\n• Net Profit: `+{net_profit:.2f} USDT`\n• Exit Price: `{exit_price}`")
+                    send_telegram(f"✅ *[{symbol}] Cycle Completed (PROFIT)*\n• Trigger: `{matched_set}`\n• Net Profit: `+{net_profit:.2f} USDT`\n• Exit Price: `{exit_price}`")
                 else:
-                    send_telegram(f"❌ *[{symbol}] Cycle Stopped (LOSS)*\n• Net Loss: `{net_profit:.2f} USDT`\n• Exit Price: `{exit_price}`")
+                    send_telegram(f"❌ *[{symbol}] Cycle Stopped (LOSS)*\n• Trigger: `{matched_set}`\n• Net Loss: `{net_profit:.2f} USDT`\n• Exit Price: `{exit_price}`")
+                
+                active_trades[symbol] = False
                     
         except Exception as e:
             print(f"Error in worker {symbol}: {e}")
+            active_trades[symbol] = False
         
-        time.sleep(20)
+        time.sleep(30)
 
 def run_concurrent_bots():
-    msg = f"🚀 *Labeled Scalping Bot Started* (Coins: {len(COINS)}, Sets: 30)"
+    msg = f"🚀 *Scalping Bot Started* (Profit: 3%, SL: 2%)"
     print(msg)
     send_telegram(msg)
     
