@@ -36,7 +36,7 @@ COINS = [
 ]
 
 CAPITAL_PER_ORDER = 10.0  
-PROFIT_TARGET_PCT = 0.03   # TP: +3.0%
+PROFIT_TARGET_PCT = 0.03   # TP: +3.0% (ပြင်ဆင်ပြီး)
 STOP_LOSS_PCT = 0.01       # SL: -1.0%
 
 symbol_info_cache = {}
@@ -142,7 +142,6 @@ def check_market_conditions(symbol):
 
         pinbar = ((min(curr_open, curr_close) - df['low'].iloc[-1]) > (abs(curr_open - curr_close) * 2))
 
-        # တောင်းဆိုထားသော Combination Set ၃၀
         c_sets = {
             "#01": (curr_rsi > prev_rsi) and (curr_close > ema50_curr) and (curr_macd > curr_sig) and (curr_vol > vol_sma * 1.5),
             "#02": (curr_rsi < 35) and (curr_rsi > prev_rsi) and (ema9_prev <= ema20_prev and ema9_curr > ema20_curr) and (curr_vol > vol_sma * 1.5),
@@ -245,7 +244,6 @@ def coin_trade_worker(symbol):
                 
                 time_str = datetime.datetime.now().strftime('%H:%M')
                 
-                # Telegram သို့ Signal ပို့ခြင်း
                 send_telegram(
                     f"{combo_id}\n"
                     f"`{symbol}`\n"
@@ -282,7 +280,6 @@ def coin_trade_worker(symbol):
                         break
                     time.sleep(10)
                 
-                # Data Collection (မှတ်တမ်းသိမ်းဆည်းခြင်း)
                 lock_data = load_data()
                 lock_data["history"].append({
                     "sig_id": sig_id,
@@ -293,7 +290,6 @@ def coin_trade_worker(symbol):
                 })
                 save_data(lock_data)
                 
-                # Result ကို Telegram သို့ ပို့ခြင်း
                 send_telegram(
                     f"Signal ID: `{sig_id}`\n"
                     f"Pair: `{symbol}`\n"
@@ -312,7 +308,6 @@ def coin_trade_worker(symbol):
         time.sleep(30)
 
 def daily_report_worker():
-    """ နေ့စဉ် Combination ၃၀ လုံး၏ ရလဒ်များကို နှိုင်းယှဉ်ထုတ်ပြန်ပေးရန် """
     while True:
         now = datetime.datetime.now()
         target_time = now.replace(hour=23, minute=59, second=0, microsecond=0)
@@ -352,7 +347,7 @@ def daily_report_worker():
         time.sleep(60)
 
 def run_concurrent_bots():
-    msg = f"🚀 *Scalping Bot & 30 Combinations Tracker Started* (TP: +2%, SL: -1%)"
+    msg = f"🚀 *Scalping Bot & 30 Combinations Tracker Started* (TP: +3%, SL: -1%)"
     print(msg)
     send_telegram(msg)
     
