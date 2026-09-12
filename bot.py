@@ -13,7 +13,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "🤖 Scalping Bot (30 Combinations with New Coins & Daily Performance Report) is running!"
+    return "🤖 Scalping Bot (30 Combinations with Stable Testnet Coins & Daily Performance Report) is running!"
 
 def run_web():
     port = int(os.environ.get("PORT", 10000))
@@ -29,16 +29,16 @@ TELEGRAM_CHAT_ID = "6127362073"
 client = Client(SPOT_API_KEY, SPOT_SECRET_KEY, testnet=True)
 client.API_URL = f"{SPOT_BASE}/api"
 
-# အသစ်ပြောင်းလဲထားသော Coin ၁၀ မျိုး
+# MATICUSDT အစား Testnet တွင် သေချာပေါက်ရသော SOLUSDT ကို အစားထိုးထားပါသည်
 COINS = [
     "BTCUSDT", "ETHUSDT", "XRPUSDT", "DOGEUSDT", 
     "ADAUSDT", "LINKUSDT", "SUIUSDT", "AVAXUSDT", 
-    "DOTUSDT", "MATICUSDT"
+    "DOTUSDT", "SOLUSDT"
 ]
 
 CAPITAL_PER_ORDER = 10.0  
-PROFIT_TARGET_PCT = 0.03   # TP: +3.0%
-STOP_LOSS_PCT = 0.02       # SL: -2.0%
+PROFIT_TARGET_PCT = 0.02   # TP: +2.0%
+STOP_LOSS_PCT = 0.01       # SL: -1.0%
 
 symbol_info_cache = {}
 active_trades = {}  
