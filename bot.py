@@ -29,10 +29,11 @@ client = Client(SPOT_API_KEY, SPOT_SECRET_KEY, testnet=True)
 client.API_URL = f"{SPOT_BASE}/api"
 
 COINS = [
-    "LTCUSDT", "BCHUSDT", "ETCUSDT", "NEARUSDT", 
-    "ATOMUSDT", "SOLUSDT", "ARBUSDT", "OPUSDT", 
-    "FILUSDT", "ICPUSDT"
+    "BTCUSDT", "ETHUSDT", "XRPUSDT", "DOGEUSDT", 
+    "ADAUSDT", "LINKUSDT", "SUIUSDT", "AVAXUSDT", 
+    "DOTUSDT", "MATICUSDT"
 ]
+
 
 CAPITAL_PER_ORDER = 10.0  
 PROFIT_TARGET_PCT = 0.03   # Profit 3% သတ်မှတ်သည်
