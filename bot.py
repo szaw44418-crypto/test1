@@ -37,8 +37,8 @@ COINS = [
 ]
 
 CAPITAL_PER_ORDER = 10.0  
-PROFIT_TARGET_PCT = 0.02   # TP: +2.0%
-STOP_LOSS_PCT = 0.01       # SL: -1.0%
+PROFIT_TARGET_PCT = 0.03   # TP: +3.0%
+STOP_LOSS_PCT = 0.02       # SL: -2.0%
 
 symbol_info_cache = {}
 active_trades = {}  
